@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.egg-info/
+.DS_Store
+data/raw/*.csv
+artifacts/**/*.joblib
+logs/*.jsonl
+logs/*.log
+node_modules/
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/

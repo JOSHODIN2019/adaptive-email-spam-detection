@@ -1,0 +1,8 @@
+{
+  "monitored_predictions": 27,
+  "error_count": 21,
+  "error_rate": 0.7778,
+  "drift_event_count": 0,
+  "last_drift_at": null,
+  "status": "monitoring"
+}

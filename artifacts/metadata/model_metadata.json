@@ -1,0 +1,37 @@
+{
+  "model_type": "LinearSVC",
+  "model_version": "static-1.0.0",
+  "hyperparameters": {
+    "C": 1.0,
+    "max_iter": 1000,
+    "random_state": 42
+  },
+  "vectorizer_type": "TfidfVectorizer",
+  "vectorizer_max_features": 5000,
+  "dataset_source": "data/raw/LEVI_DATASET.csv",
+  "dataset_rows_after_cleaning": 39154,
+  "train_rows": 31323,
+  "test_rows": 7831,
+  "test_size": 0.2,
+  "random_state": 42,
+  "frequent_words_removed_count": 20,
+  "rare_words_removed_count": 42202,
+  "metrics": {
+    "accuracy": 0.9966,
+    "precision": 0.9963,
+    "recall": 0.9975,
+    "f1_score": 0.9969,
+    "confusion_matrix": {
+      "true_negative": 3446,
+      "false_positive": 16,
+      "false_negative": 11,
+      "true_positive": 4358
+    }
+  },
+  "known_limitations": [
+    "Frequent-word and rare-word pruning were fitted on the full corpus (train+test) before the train/test split, matching the supplied notebook's own cell order. This is a pre-existing train/test leakage in the baseline pipeline, preserved here to keep exported metrics faithful to the original notebook rather than silently changed.",
+    "LinearSVC is a batch model with no incremental-learning support. It is the static baseline only; the adaptive online model is a separate River MultinomialNB pipeline (see artifacts/adaptive_model)."
+  ],
+  "trained_at_unix": 1789719085.685041,
+  "training_duration_seconds": 37.2
+}
