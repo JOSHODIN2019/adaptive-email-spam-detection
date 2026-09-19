@@ -32,6 +32,6 @@
     "Frequent-word and rare-word pruning were fitted on the full corpus (train+test) before the train/test split, matching the supplied notebook's own cell order. This is a pre-existing train/test leakage in the baseline pipeline, preserved here to keep exported metrics faithful to the original notebook rather than silently changed.",
     "LinearSVC is a batch model with no incremental-learning support. It is the static baseline only; the adaptive online model is a separate River MultinomialNB pipeline (see artifacts/adaptive_model)."
   ],
-  "trained_at_unix": 1789719085.685041,
-  "training_duration_seconds": 37.2
+  "trained_at_unix": 1789819598.9667468,
+  "training_duration_seconds": 37.1
 }

@@ -1,17 +1,17 @@
 {
   "model_type": "River Pipeline (TFIDF -> MultinomialNB)",
-  "model_version": "adaptive-1.0.27",
+  "model_version": "adaptive-1.0.0",
   "shares_vectorizer_with_static": false,
   "vectorizer_vocabulary_fixed": false,
   "warm_up_epochs": 8,
   "warm_up_train_rows": 31323,
   "held_out_test_rows": 7831,
   "random_state": 42,
-  "update_count": 27,
-  "feedback_count": 27,
-  "created_at_unix": 1789745791.2571259,
-  "last_updated_at_unix": 1789817221.2732658,
-  "status": "updated",
+  "update_count": 0,
+  "feedback_count": 0,
+  "created_at_unix": 1789819719.572886,
+  "last_updated_at_unix": null,
+  "status": "initialized",
   "initial_eval_on_held_out_test_set": {
     "accuracy": 0.9871,
     "precision": 0.9984,
@@ -21,7 +21,5 @@
   "known_limitations": [
     "Naive Bayes assumes conditional independence between words given the class label, which is rarely exactly true for natural language but works well in practice for spam/ham text classification.",
     "Warm-up uses a fixed number of shuffled passes over the train split rather than true streaming order; it establishes a reasonable starting point before online feedback updates begin."
-  ],
-  "last_update_learn_calls": 26,
-  "last_update_final_confidence": 0.6046
+  ]
 }

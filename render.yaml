@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: adaptive-email-spam-detection
+    runtime: python
+    plan: free
+    buildCommand: >
+      pip install -r requirements.txt &&
+      python -c "import nltk; [nltk.download(p) for p in ['punkt','punkt_tab','stopwords','wordnet','omw-1.4','averaged_perceptron_tagger','averaged_perceptron_tagger_eng']]"
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_FULL_EMAIL_BODY
+        value: "false"
+      - key: PYTHON_VERSION
+        value: 3.13.9

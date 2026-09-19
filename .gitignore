@@ -6,7 +6,6 @@ __pycache__/
 *.egg-info/
 .DS_Store
 data/raw/*.csv
-artifacts/**/*.joblib
 logs/*.jsonl
 logs/*.log
 node_modules/
