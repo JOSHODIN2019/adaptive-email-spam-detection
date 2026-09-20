@@ -15,6 +15,8 @@ scripts/train_static_model.py, where it belongs.
 """
 
 import re
+import tempfile
+from pathlib import Path
 
 import nltk
 from nltk.corpus import stopwords
@@ -31,6 +33,15 @@ _REQUIRED_NLTK_PACKAGES = [
     "averaged_perceptron_tagger_eng",
 ]
 
+# nltk.download()'s default target is the user's home directory, which is
+# read-only on Vercel's serverless filesystem (only /tmp is writable there).
+# Using a fixed /tmp location everywhere - rather than branching on platform -
+# keeps this one code path correct on local dev, Render, and Vercel alike;
+# it costs a one-time re-download locally the first time this runs.
+_NLTK_DATA_DIR = str(Path(tempfile.gettempdir()) / "nltk_data")
+if _NLTK_DATA_DIR not in nltk.data.path:
+    nltk.data.path.insert(0, _NLTK_DATA_DIR)
+
 
 def ensure_nltk_data() -> None:
     """Download required NLTK corpora if missing. Safe to call on every
@@ -40,7 +51,7 @@ def ensure_nltk_data() -> None:
     filesystem layers, so data fetched during build is not guaranteed to
     exist wherever the app actually starts."""
     for package in _REQUIRED_NLTK_PACKAGES:
-        nltk.download(package, quiet=True)
+        nltk.download(package, download_dir=_NLTK_DATA_DIR, quiet=True)
 
 _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")

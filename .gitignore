@@ -11,3 +11,5 @@ logs/*.log
 node_modules/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
+.vercel
+.env*

@@ -2,7 +2,29 @@
 name = "adaptive-spam-detection-system"
 version = "0.1.0"
 description = "Adaptive Email Spam Detection System - academic final-year project"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.141.1",
+    "starlette==1.6.0",
+    "uvicorn==0.53.0",
+    "pydantic==2.13.5",
+    "pydantic_core==2.46.5",
+    "python-multipart==0.0.32",
+    "joblib==1.6.0",
+    "numpy==2.5.3",
+    "scikit-learn==1.9.1",
+    "scipy==1.18.1",
+    "threadpoolctl==3.7.0",
+    "river==0.26.1",
+    "nltk==3.10.3",
+    "click==8.5.0",
+    "regex==2026.9.10",
+    "tqdm==4.70.1",
+]
+
+# Vercel's Python builder resolves dependencies from this [project.dependencies]
+# list via uv (not requirements.txt, when both exist) - kept in sync manually
+# with requirements.txt, which Render's build command uses instead.
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]
