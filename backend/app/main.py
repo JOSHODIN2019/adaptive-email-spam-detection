@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import adaptive, drift, events, evaluation, feedback, health, predict
 from app.core.state import build_app_state
+from app.ml.preprocessing import ensure_nltk_data
 from app.schemas.common import error
 
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -17,6 +18,7 @@ logger = logging.getLogger("spam_detection")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ensure_nltk_data()
     app.state.app_state = build_app_state()
     yield
 

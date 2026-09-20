@@ -16,9 +16,31 @@ scripts/train_static_model.py, where it belongs.
 
 import re
 
+import nltk
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, WordNetLemmatizer
 from nltk.tokenize import word_tokenize
+
+_REQUIRED_NLTK_PACKAGES = [
+    "stopwords",
+    "punkt",
+    "punkt_tab",
+    "wordnet",
+    "omw-1.4",
+    "averaged_perceptron_tagger",
+    "averaged_perceptron_tagger_eng",
+]
+
+
+def ensure_nltk_data() -> None:
+    """Download required NLTK corpora if missing. Safe to call on every
+    startup: nltk.download() no-ops when data is already present. Must run
+    at application startup, not just at build/deploy time - on platforms
+    like Render, the build step and the running container can be separate
+    filesystem layers, so data fetched during build is not guaranteed to
+    exist wherever the app actually starts."""
+    for package in _REQUIRED_NLTK_PACKAGES:
+        nltk.download(package, quiet=True)
 
 _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 _URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
