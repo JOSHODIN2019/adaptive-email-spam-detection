@@ -24,13 +24,19 @@ def _make_writable(path: Path, project_root: Path) -> Path:
     stateful-by-design app to a stateless platform (see PROJECT_MEMORY.md
     §24) - this fix's job is only to stop it from crashing, not to grant
     Vercel a persistent filesystem it doesn't have."""
-    path.mkdir(parents=True, exist_ok=True)
-    probe = path / ".write_test"
     try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_test"
         probe.write_text("ok")
         probe.unlink()
         return path
     except OSError:
+        # Covers two distinct failure modes on a read-only mount: the
+        # directory already exists but can't be written into (e.g.
+        # artifacts/, shipped with real files), and the directory doesn't
+        # exist at all so even mkdir() itself fails (e.g. logs/, which has
+        # no tracked files - git doesn't track empty directories, so it
+        # is simply absent from the deployed bundle).
         relative = path.relative_to(project_root) if path.is_relative_to(project_root) else path.name
         writable_copy = Path(tempfile.gettempdir()) / "spam_detection_writable" / relative
         if not writable_copy.exists():
