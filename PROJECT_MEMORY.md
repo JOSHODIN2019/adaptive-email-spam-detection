@@ -1633,3 +1633,51 @@ what was reported and the current latency is within acceptable bounds
 for a "submit and see confirmation" UI action (the frontend already
 shows a "Submitting feedback…" state) — flagged here as a known
 characteristic in case it needs revisiting if feedback volume grows.
+
+---
+
+# 24. Deployment — 2026-09-19
+
+- **GitHub**: public repo at
+  https://github.com/JOSHODIN2019/adaptive-email-spam-detection.
+  Dataset (`data/raw/*.csv`) and runtime logs remain gitignored; the
+  small trained artifacts (~4.2MB: static SVM, TF-IDF vectorizer,
+  adaptive model, ADWIN detector) are tracked directly so a fresh
+  clone/deploy never needs the 65MB dataset. Artifacts were
+  regenerated fresh immediately before committing, so the shipped
+  baseline is a clean warm-up (`adaptive-1.0.0`), not the accumulated
+  ad-hoc test corrections from local development.
+- **Render**: deployed as a single web service (`render.yaml`,
+  Python runtime, free plan, auto-deploy on push to `master`) at
+  https://adaptive-email-spam-detection.onrender.com. Health check:
+  `/api/health`.
+- **Vercel**: deliberately skipped, per explicit user decision. Vercel
+  Python deploys are stateless serverless functions with no persistent
+  filesystem; this app's adaptive learning depends on writing
+  `.joblib`/JSONL files to local disk on every piece of feedback.
+  Deploying there would silently break the core feature (predictions
+  would work, but feedback corrections would not persist between
+  requests) rather than fail loudly, which is worse than not deploying
+  there at all.
+- **Real bug caught and fixed during deployment**: the first deploy's
+  build step downloaded NLTK corpora via `nltk.download()`, but the
+  live app crashed on the first `/api/predict` call with
+  `LookupError: Resource 'stopwords' not found`. Root cause: Render's
+  build step and the running container are separate filesystem layers,
+  so data fetched during build is not guaranteed to exist wherever the
+  app actually starts. Fixed by moving the download into
+  `ensure_nltk_data()` (`backend/app/ml/preprocessing.py`), called
+  from the FastAPI lifespan on every startup — `nltk.download()`
+  no-ops when data is already present, so this has zero effect
+  locally. Verified by actually calling `/api/predict` and
+  `/api/feedback` against the live URL after the fix (not just
+  checking Render's "live" status label, which was true even during
+  the broken first deploy), plus a full Playwright pass against the
+  live frontend (0 console errors, 0 failed requests).
+- **Known limitation**: Render's free plan does not include a paid
+  persistent disk add-on, so if the instance restarts (redeploy, or
+  free-tier spin-down after inactivity), local state resets to
+  whatever was last committed to git (the clean `adaptive-1.0.0`
+  baseline) rather than persisting feedback-driven updates
+  indefinitely. Within a single running instance's uptime, feedback
+  persists normally exactly as it does locally.
