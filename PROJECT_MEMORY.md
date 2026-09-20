@@ -1651,15 +1651,7 @@ characteristic in case it needs revisiting if feedback volume grows.
   Python runtime, free plan, auto-deploy on push to `master`) at
   https://adaptive-email-spam-detection.onrender.com. Health check:
   `/api/health`.
-- **Vercel**: deliberately skipped, per explicit user decision. Vercel
-  Python deploys are stateless serverless functions with no persistent
-  filesystem; this app's adaptive learning depends on writing
-  `.joblib`/JSONL files to local disk on every piece of feedback.
-  Deploying there would silently break the core feature (predictions
-  would work, but feedback corrections would not persist between
-  requests) rather than fail loudly, which is worse than not deploying
-  there at all.
-- **Real bug caught and fixed during deployment**: the first deploy's
+- **Render bug #1 - NLTK missing at runtime.** The first Render deploy's
   build step downloaded NLTK corpora via `nltk.download()`, but the
   live app crashed on the first `/api/predict` call with
   `LookupError: Resource 'stopwords' not found`. Root cause: Render's
@@ -1669,15 +1661,95 @@ characteristic in case it needs revisiting if feedback volume grows.
   `ensure_nltk_data()` (`backend/app/ml/preprocessing.py`), called
   from the FastAPI lifespan on every startup — `nltk.download()`
   no-ops when data is already present, so this has zero effect
-  locally. Verified by actually calling `/api/predict` and
-  `/api/feedback` against the live URL after the fix (not just
-  checking Render's "live" status label, which was true even during
-  the broken first deploy), plus a full Playwright pass against the
-  live frontend (0 console errors, 0 failed requests).
-- **Known limitation**: Render's free plan does not include a paid
-  persistent disk add-on, so if the instance restarts (redeploy, or
-  free-tier spin-down after inactivity), local state resets to
-  whatever was last committed to git (the clean `adaptive-1.0.0`
-  baseline) rather than persisting feedback-driven updates
-  indefinitely. Within a single running instance's uptime, feedback
-  persists normally exactly as it does locally.
+  locally.
+
+## Vercel — deployed 2026-09-19, initially skipped then added back per explicit later request
+
+Originally **not** deployed here: Vercel Python functions are
+stateless serverless with no persistent filesystem, and this app's
+adaptive learning depends on writing `.joblib`/JSONL files on every
+piece of feedback. The user asked for it anyway, understanding that
+tradeoff. Live at https://adaptive-email-spam-detection.vercel.app
+(project `josh-academy/adaptive-email-spam-detection`).
+
+Getting it running well surfaced three more real, distinct bugs — each
+found by actually deploying and reading the function logs, not by
+guessing, then fixed and re-verified against the live URL before
+moving to the next one:
+
+1. **Zero dependencies installed.** `api/index.py` + `vercel.json`
+   (`builds`/`routes` pointing at it) were added to expose the
+   existing FastAPI app without restructuring `backend/app`. First
+   deploy "succeeded" in 2 seconds, then every request crashed with
+   `ModuleNotFoundError: No module named 'fastapi'`. Cause: Vercel's
+   Python builder resolves dependencies from `pyproject.toml` via `uv`
+   whenever one exists, ignoring `requirements.txt` entirely — and our
+   `pyproject.toml` (originally added only for pytest config) had no
+   `[project.dependencies]`, so nothing was installed. Fixed by adding
+   the dependency list there, kept manually in sync with
+   `requirements.txt` (which Render's build command still uses
+   directly). Also had to narrow `requires-python` from `>=3.11` to
+   `>=3.12`: `numpy==2.5.3` requires 3.12+, and `uv`'s resolver failed
+   trying to satisfy the wider stated range even though the actual
+   runtime is 3.12.
+2. **NLTK crash, different cause than Render's.** After fixing
+   dependencies, `ensure_nltk_data()` itself crashed:
+   `OSError: [Errno 30] Read-only file system: '/home/sbx_user1051'`.
+   `nltk.download()`'s default target is the user's home directory,
+   read-only on Vercel (only `/tmp` is writable there). Fixed by always
+   downloading to a fixed path under `tempfile.gettempdir()` and adding
+   it to `nltk.data.path` — one code path correct on local dev, Render,
+   and Vercel alike, rather than branching per platform.
+3. **Every prediction crashed writing its log line.** With NLTK fixed,
+   `/api/health` went green but `/api/predict` crashed:
+   `OSError: [Errno 30] Read-only file system: '/var/task/logs/predictions.jsonl'`
+   — the same read-only-filesystem constraint, now hitting the
+   application's own event logs and (would have, next) the adaptive
+   model's every-feedback `joblib.dump`. Fixed properly this time
+   rather than papering over one path at a time: added
+   `Settings._make_writable()` (`backend/app/core/config.py`), which
+   probes whether `artifacts_dir`/`logs_dir` are actually writable and,
+   if not, transparently copies them to `/tmp` and redirects every path
+   built from them there — a no-op on local dev and Render. This also
+   required fixing `STATIC_MODEL_PATH`/`STATIC_VECTORIZER_PATH`/
+   `ADAPTIVE_MODEL_PATH`/`METADATA_PATH`, which previously reconstructed
+   from `PROJECT_ROOT` independently of `artifacts_dir` — so even with
+   the redirect in place, those four would have kept pointing at the
+   original read-only bundle while everything else moved to `/tmp`.
+
+Also trimmed `requirements.txt` from 498MB installed to 241MB while
+fixing this (dropped notebook-only tooling — jupyter/nbconvert/
+matplotlib/etc — never used by the serving app, plus `pandas`, only
+used by the training scripts, never imported at runtime by
+`backend/app`). Moved `pandas` to a new `requirements-training.txt`.
+Both training scripts now call `ensure_nltk_data()` themselves too, so
+they work standalone on a fresh clone without needing the app started
+first. Verified in a fresh, isolated venv (not just assumed) that
+health/predict/`.eml`-upload all still work with the trimmed set
+before relying on it for either deploy target.
+
+**End-to-end verification after all three fixes**: called
+`/api/health`, `/api/predict`, and `/api/feedback` directly against
+the live Vercel URL — a feedback correction genuinely updated the
+model (`adaptive-1.0.0` → `adaptive-1.0.1`) and a repeat prediction of
+the same email reflected it, confirmed within that same warm instance.
+Also ran a full Playwright pass against the live frontend (0 console
+errors, 0 failed requests) and re-confirmed Render was unaffected by
+the shared `config.py`/`pyproject.toml` changes.
+
+## Known limitations (both platforms)
+
+- **Render**: free plan has no paid persistent-disk add-on, so if the
+  instance restarts (redeploy, or free-tier spin-down after
+  inactivity), local state resets to whatever was last committed to
+  git (the clean `adaptive-1.0.0` baseline) rather than persisting
+  feedback-driven updates indefinitely. Within a single running
+  instance's uptime, feedback persists normally exactly as it does
+  locally.
+- **Vercel**: no persistent filesystem at all, by design — the
+  `/tmp` redirect makes feedback work within one warm serverless
+  instance, but a cold start (which can happen between any two
+  requests, not just after a redeploy) always resets to the bundled
+  `adaptive-1.0.0` baseline. This is a materially weaker persistence
+  guarantee than Render's, understood and accepted when the user asked
+  for this deployment anyway.
