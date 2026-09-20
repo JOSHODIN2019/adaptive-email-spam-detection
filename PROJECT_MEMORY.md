@@ -1737,7 +1737,13 @@ Also ran a full Playwright pass against the live frontend (0 console
 errors, 0 failed requests) and re-confirmed Render was unaffected by
 the shared `config.py`/`pyproject.toml` changes.
 
-## Known limitations (both platforms)
+## Known limitations (both platforms) — SUPERSEDED, see §25 below
+
+The limitations described in this section (Render losing state on
+restart, Vercel losing state on every cold start) were real as of the
+2026-09-19 deployment above. They were fixed on 2026-09-20 by adding
+Redis-backed persistence — see §25. Left here for the historical
+record of what motivated that fix.
 
 - **Render**: free plan has no paid persistent-disk add-on, so if the
   instance restarts (redeploy, or free-tier spin-down after
@@ -1753,3 +1759,76 @@ the shared `config.py`/`pyproject.toml` changes.
   `adaptive-1.0.0` baseline. This is a materially weaker persistence
   guarantee than Render's, understood and accepted when the user asked
   for this deployment anyway.
+
+## §25 Redis-backed persistence — added 2026-09-20
+
+**Trigger**: user reported that correcting a prediction didn't feel
+permanent, and asked explicitly for corrections to hold "even after
+months" of checking back. The limitations in the section above meant
+that was never actually guaranteed on either platform — correct on
+paper (local files were never designed to survive a platform resetting
+the filesystem), but not what the user needed.
+
+**Fix**: added a `KVStore` abstraction
+(`backend/app/storage/kv_store.py`) with two implementations:
+- `LocalFileKVStore` — the original file-based behavior, used
+  automatically whenever no Redis is configured, so local dev needs no
+  database and behaves exactly as before.
+- `UpstashKVStore` — Redis reachable over HTTPS from any environment
+  (works from Vercel's stateless functions, unlike a normal TCP Redis
+  connection), provisioned via Vercel's Upstash-for-Redis marketplace
+  integration. The same `KV_REST_API_URL` / `KV_REST_API_TOKEN` were
+  added to **both** Render's and Vercel's env vars (Render's via a
+  direct PUT to the Render REST API using the CLI's stored key, since
+  `render services update` has no env-var flag) so both platforms read
+  and write the same persistent state instead of diverging.
+
+`AdaptiveModelService` and `DriftMonitor` (`backend/app/ml/`) now
+read/write through this store instead of `joblib.dump()`-ing straight
+to a local path: first load seeds the store from the git-committed
+baseline if the store is still empty, then every update persists
+there. `PredictionStore` (`backend/app/storage/prediction_store.py`)
+moved to the same store too (1-week TTL) when Redis is configured —
+this one isn't only about long-term persistence, it's required for
+basic correctness on Vercel, where a `/api/predict` request and the
+`/api/feedback` request correcting it can land on two different
+serverless instances, each with its own empty in-memory dict; without
+a shared store that feedback call would fail outright with
+`UNKNOWN_PREDICTION_ID`.
+
+**Verification performed** (live production URLs, not just local):
+1. `POST /api/predict` on live Render with a never-before-seen email →
+   adaptive model said `ham` at 82.8% confidence (`adaptive-1.0.1`).
+2. `POST /api/feedback` correcting it to `spam` → model updated to
+   `adaptive-1.0.2`, response confirmed the flip.
+3. Immediately re-predicted the same email on Render → `spam` at
+   61.2%, `adaptive-1.0.2`. Correction took effect immediately, as
+   required.
+4. Predicted the **same email** on the live **Vercel** URL (a
+   completely separate, stateless, serverless platform with no shared
+   memory with Render) → identical result: `spam`, confidence
+   `0.6120555792190702`, `adaptive-1.0.2`. Proves the two platforms
+   share persistent state via Redis rather than each holding their own.
+5. Triggered a genuine Render restart via the Render API
+   (`POST /services/{id}/restart`), confirmed via the service's own
+   event log (`server_restarted` event, not just an assumption from a
+   "live" status label) that the process actually restarted.
+6. Re-predicted the same email on Render again after that restart →
+   still `spam`, still confidence `0.6120555792190702`, still
+   `adaptive-1.0.2`. Proves the correction survives a real process
+   restart, which is the exact class of event (cold start / free-tier
+   spin-down / redeploy) that previously reset state.
+7. Ran the full backend test suite (`.venv/bin/python -m pytest
+   backend/tests`) — 23/23 passed, confirming the local-file fallback
+   path (used automatically when Redis isn't configured, i.e. local
+   dev) has zero regressions.
+
+**Deliberate scope decision, not yet raised with the user**: the event
+logs (`predictions.jsonl`, `feedback.jsonl`, `model_updates.jsonl`,
+`drift_events.jsonl`) were **not** migrated to Redis in this pass —
+they remain local-file/ephemeral. The Activity Log UI will still lose
+its history across a Vercel cold start even though the underlying
+adaptive model's predictions are now correct. Prioritized the model
+state (what the user explicitly asked about) over log history
+(cosmetic/audit-trail, not asked about). Worth revisiting if the user
+notices Activity Log entries disappearing.
