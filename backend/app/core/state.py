@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, get_kv_store, get_settings
 from app.ml.adaptive_model import AdaptiveModelService
 from app.ml.drift_monitor import DriftMonitor
 from app.ml.static_inference import StaticSVMService
@@ -18,9 +18,11 @@ class AppState:
 
 def build_app_state() -> AppState:
     settings = get_settings()
+    kv_store = get_kv_store()
+
     static_service = StaticSVMService(settings)
-    adaptive_service = AdaptiveModelService(settings)
-    drift_monitor = DriftMonitor(settings)
+    adaptive_service = AdaptiveModelService(settings, kv_store)
+    drift_monitor = DriftMonitor(settings, kv_store)
 
     static_service.load()
     adaptive_service.load()
@@ -31,5 +33,5 @@ def build_app_state() -> AppState:
         static_service=static_service,
         adaptive_service=adaptive_service,
         drift_monitor=drift_monitor,
-        prediction_store=PredictionStore(),
+        prediction_store=PredictionStore(kv_store, use_kv=settings.use_redis),
     )

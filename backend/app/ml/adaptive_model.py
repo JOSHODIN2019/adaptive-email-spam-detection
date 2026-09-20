@@ -41,41 +41,82 @@ unrelated predictions that don't share vocabulary with the corrected
 email — Naive Bayes updates are per-word, unlike the earlier
 SGDClassifier's dense gradient updates which touched every feature
 weight.
+
+Persistence: reads/writes go through a KVStore (backend/app/storage/
+kv_store.py), not directly to a local file. A local joblib.dump()
+survives fine as long as the same process keeps running, but both
+deployment targets periodically reset their filesystem out from under
+the app (Vercel serverless: every cold start; Render free tier: spin-
+down after inactivity) - a correction made right before that reset
+would otherwise vanish. When Redis is configured, corrections persist
+indefinitely regardless of which instance, or which platform, serves
+the next request. The first-ever load seeds the store from the
+git-committed baseline (artifacts/adaptive_model/adaptive_model.joblib)
+if the store is still empty.
 """
 
+import io
 import json
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 import joblib
 
 from app.core.config import Settings
+from app.storage.kv_store import KVStore
 
 LABEL_NAMES = {0: "ham", 1: "spam"}
 NAME_TO_LABEL = {"ham": 0, "spam": 1}
 FEEDBACK_CONFIDENCE_MARGIN = 0.6
 FEEDBACK_MAX_LEARN_CALLS = 5000
 
+_MODEL_KEY = "adaptive_model"
+_METADATA_KEY = "adaptive_model_metadata"
+
 
 class AdaptiveModelService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, kv_store: KVStore) -> None:
         self._settings = settings
+        self._kv_store = kv_store
         self._model = None
         self._metadata: dict = {}
         self._lock = threading.Lock()
         self._loaded = False
 
     def load(self) -> None:
-        if not self._settings.adaptive_model_path.exists():
-            raise FileNotFoundError(
-                f"Adaptive model not found at {self._settings.adaptive_model_path}. "
-                "Run scripts/initialize_adaptive_model.py first."
-            )
-        self._model = joblib.load(self._settings.adaptive_model_path)
-        self._metadata = self._read_metadata(self._settings.adaptive_metadata_path)
+        model_bytes = self._kv_store.get_bytes(_MODEL_KEY)
+        metadata = self._kv_store.get_json(_METADATA_KEY)
+
+        if model_bytes is not None and metadata is not None:
+            self._model = joblib.load(io.BytesIO(model_bytes))
+            self._metadata = metadata
+        else:
+            # Store is empty (first-ever run against it) - seed from the
+            # git-committed baseline so there is always something to serve,
+            # then persist that seed so future reads/instances see it too.
+            if not self._settings.adaptive_model_path.exists():
+                raise FileNotFoundError(
+                    f"Adaptive model not found at {self._settings.adaptive_model_path} "
+                    "and the KV store is empty. Run scripts/initialize_adaptive_model.py first."
+                )
+            self._model = joblib.load(self._settings.adaptive_model_path)
+            self._metadata = self._read_local_metadata()
+            self._persist(update_learn_stats=None)
+
         self._loaded = True
+
+    def _read_local_metadata(self) -> dict:
+        path = self._settings.adaptive_metadata_path
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def _persist(self, update_learn_stats: Optional[dict]) -> None:
+        if update_learn_stats is not None:
+            self._metadata.update(update_learn_stats)
+        buf = io.BytesIO()
+        joblib.dump(self._model, buf)
+        self._kv_store.set_bytes(_MODEL_KEY, buf.getvalue())
+        self._kv_store.set_json(_METADATA_KEY, self._metadata)
 
     @property
     def is_loaded(self) -> bool:
@@ -88,15 +129,6 @@ class AdaptiveModelService:
     @property
     def metadata(self) -> dict:
         return dict(self._metadata)
-
-    @staticmethod
-    def _read_metadata(path: Path) -> dict:
-        if not path.exists():
-            return {}
-        return json.loads(path.read_text())
-
-    def _write_metadata(self) -> None:
-        self._settings.adaptive_metadata_path.write_text(json.dumps(self._metadata, indent=2))
 
     def predict(self, processed_text: str) -> dict:
         """Predict from cleaned text directly — River's TFIDF does its own
@@ -126,8 +158,9 @@ class AdaptiveModelService:
         `learn_one` until predict_proba confirms the model actually
         crossed FEEDBACK_CONFIDENCE_MARGIN toward that label (see module
         docstring for why a fixed repeat count isn't reliable), then
-        persist the updated model + version metadata. Returns the new
-        metadata snapshot plus how many learn_one calls it took."""
+        persist the updated model + version metadata via the KV store.
+        Returns the new metadata snapshot plus how many learn_one calls
+        it took."""
         if not self._loaded:
             raise RuntimeError("AdaptiveModelService.load() must be called before update_one()")
 
@@ -146,18 +179,16 @@ class AdaptiveModelService:
                 self._model.learn_one(processed_text, true_label_name)
                 learn_calls = 1
 
-            joblib.dump(self._model, self._settings.adaptive_model_path)
-
             update_count = int(self._metadata.get("update_count", 0)) + 1
-            self._metadata["update_count"] = update_count
-            self._metadata["feedback_count"] = int(self._metadata.get("feedback_count", 0)) + 1
-            self._metadata["last_updated_at_unix"] = time.time()
-            self._metadata["status"] = "updated"
-            self._metadata["last_update_learn_calls"] = learn_calls
-            self._metadata["last_update_final_confidence"] = round(confidence, 4)
-
             major_minor = ".".join(self.model_version.split("-")[-1].split(".")[:2]) or "1.0"
-            self._metadata["model_version"] = f"adaptive-{major_minor}.{update_count}"
 
-            self._write_metadata()
+            self._persist({
+                "update_count": update_count,
+                "feedback_count": int(self._metadata.get("feedback_count", 0)) + 1,
+                "last_updated_at_unix": time.time(),
+                "status": "updated",
+                "last_update_learn_calls": learn_calls,
+                "last_update_final_confidence": round(confidence, 4),
+                "model_version": f"adaptive-{major_minor}.{update_count}",
+            })
             return dict(self._metadata)

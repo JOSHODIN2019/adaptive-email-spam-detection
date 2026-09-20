@@ -3,6 +3,7 @@ import shutil
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -94,7 +95,29 @@ class Settings:
         self.max_upload_size_bytes: int = int(os.getenv("MAX_UPLOAD_SIZE_BYTES", "2000000"))
         self.log_full_email_body: bool = os.getenv("LOG_FULL_EMAIL_BODY", "false").lower() == "true"
 
+        # When set (provisioned via Vercel's Upstash-for-Redis marketplace
+        # integration, same env var names either platform), the adaptive
+        # model/ADWIN state/in-flight predictions persist in Redis instead
+        # of local files - durable across Vercel cold starts and Render
+        # restarts alike, since both reach it over HTTPS rather than
+        # through either platform's own (unreliable) local disk.
+        self.kv_rest_api_url: Optional[str] = os.getenv("KV_REST_API_URL")
+        self.kv_rest_api_token: Optional[str] = os.getenv("KV_REST_API_TOKEN")
+        self.use_redis: bool = bool(self.kv_rest_api_url and self.kv_rest_api_token)
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_kv_store():
+    from app.storage.kv_store import KVStore, LocalFileKVStore, UpstashKVStore
+
+    settings = get_settings()
+    if settings.use_redis:
+        store: KVStore = UpstashKVStore(settings.kv_rest_api_url, settings.kv_rest_api_token)
+    else:
+        store = LocalFileKVStore(settings.artifacts_dir / "kv_fallback")
+    return store
