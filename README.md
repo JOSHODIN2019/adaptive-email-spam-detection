@@ -15,21 +15,27 @@ baseline notebook this system is built from.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-python3 -c "
-import nltk
-for pkg in ['punkt','punkt_tab','stopwords','wordnet','omw-1.4',
-            'averaged_perceptron_tagger','averaged_perceptron_tagger_eng']:
-    nltk.download(pkg, quiet=True)
-"
 ```
+
+NLTK data downloads automatically on first app startup
+(`ensure_nltk_data()` in `backend/app/ml/preprocessing.py`) — no
+separate step needed.
+
+`requirements.txt` covers everything the *deployed app* needs to serve
+predictions (kept intentionally lean for Vercel's serverless function
+size limit). It does not include `pandas`, which the app never imports
+at runtime — only the training scripts below use it.
 
 ## Train the models (first run only)
 
-The dataset (`data/raw/LEVI_DATASET.csv`) and trained artifacts are
-gitignored — regenerate them locally:
+Trained artifacts (`artifacts/**/*.joblib`, ~4.2MB total) are committed
+to the repo, so a fresh clone can serve predictions immediately without
+retraining. Only regenerate them if you want to retrain from scratch —
+this requires the raw dataset (`data/raw/LEVI_DATASET.csv`, gitignored
+for size) and `pandas`:
 
 ```bash
+pip install -r requirements-training.txt   # adds pandas
 python scripts/train_static_model.py        # baseline LinearSVC + TF-IDF
 python scripts/initialize_adaptive_model.py  # warm-starts the adaptive River MultinomialNB pipeline + ADWIN
 ```

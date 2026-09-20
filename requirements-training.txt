@@ -1,0 +1,9 @@
+# Extra dependencies needed only to run scripts/train_static_model.py and
+# scripts/initialize_adaptive_model.py locally (dataset loading, parallel
+# preprocessing). Not needed by the deployed app - backend/app/ never
+# imports pandas at runtime, it only reads the already-trained artifacts.
+#
+# Install alongside requirements.txt:
+#   pip install -r requirements.txt -r requirements-training.txt
+
+pandas==3.0.6

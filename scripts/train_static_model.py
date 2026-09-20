@@ -49,7 +49,9 @@ from sklearn.svm import LinearSVC
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
-from app.ml.preprocessing import clean_text, tokenize_stem_lemmatize  # noqa: E402
+from app.ml.preprocessing import clean_text, ensure_nltk_data, tokenize_stem_lemmatize  # noqa: E402
+
+ensure_nltk_data()
 
 DATA_PATH = PROJECT_ROOT / "data" / "raw" / "LEVI_DATASET.csv"
 STATIC_MODEL_PATH = PROJECT_ROOT / "artifacts" / "static_svm" / "model.joblib"
