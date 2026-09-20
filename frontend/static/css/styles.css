@@ -655,6 +655,14 @@ input[type="text"]:focus, textarea:focus, select:focus {
   .app-main { padding: var(--space-4) var(--space-3); }
   .top-bar { padding: var(--space-3) var(--space-4); }
   .event-time { width: auto; }
+
+  /* iOS Safari auto-zooms the page on focusing any input with a computed
+     font-size under 16px - jarring on a form-heavy screen like this one.
+     Bumping just these four to 16px on small viewports avoids it without
+     changing the denser desktop look. */
+  input[type="text"], textarea, select, input[type="file"] {
+    font-size: 16px;
+  }
 }
 
 @media (max-width: 480px) {
